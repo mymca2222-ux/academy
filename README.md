@@ -1,6 +1,6 @@
 # PDR — BCA/MCA Student Study Platform V1
 
-A web platform where BCA and MCA students can access semester-wise study material.
+A web platform where BCA and MCA students can access semester-wise study material in one place.
 
 ## Tech Stack
 
