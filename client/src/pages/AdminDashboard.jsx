@@ -6,10 +6,27 @@ function CrudList({ title, endpoint, fields, itemLabel }) {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState({});
   const [editing, setEditing] = useState(null);
+  const [fieldOptions, setFieldOptions] = useState({});
 
   const fetch = () => api.get(endpoint).then(res => setItems(res.data));
 
   useEffect(() => { fetch(); }, [endpoint]);
+
+  useEffect(() => {
+    fields.forEach(f => {
+      if (f.optionsEndpoint) {
+        api.get(f.optionsEndpoint).then(res => {
+          const opts = res.data.map(o => ({
+            value: o[f.optionValue || '_id'],
+            label: f.optionLabel ? f.optionLabel(o) : (o.name || o.title || o._id),
+          }));
+          setFieldOptions(prev => ({ ...prev, [f.name]: opts }));
+        });
+      } else if (f.options) {
+        setFieldOptions(prev => ({ ...prev, [f.name]: f.options }));
+      }
+    });
+  }, [fields]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,11 +62,12 @@ function CrudList({ title, endpoint, fields, itemLabel }) {
   };
 
   const renderField = (f) => {
-    if (f.type === 'select') {
+    const options = fieldOptions[f.name] || [];
+    if (f.type === 'select' || f.type === 'ref') {
       return (
         <select key={f.name} value={form[f.name] || ''} onChange={(e) => setForm({ ...form, [f.name]: e.target.value })} required={f.required}>
           <option value="">{f.label}</option>
-          {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       );
     }
@@ -57,6 +75,11 @@ function CrudList({ title, endpoint, fields, itemLabel }) {
       return <textarea key={f.name} placeholder={f.label} value={form[f.name] || ''} onChange={(e) => setForm({ ...form, [f.name]: e.target.value })} required={f.required} rows={f.rows || 3} />;
     }
     return <input key={f.name} type={f.type || 'text'} placeholder={f.label} value={form[f.name] || ''} onChange={(e) => setForm({ ...form, [f.name]: e.target.value })} required={f.required} />;
+  };
+
+  const defaultLabel = (item) => {
+    const text = item.name || item.title || JSON.stringify(item);
+    return <>{text} <code style={{ fontSize: '0.8rem', color: '#666' }}>({item._id})</code></>;
   };
 
   return (
@@ -69,7 +92,7 @@ function CrudList({ title, endpoint, fields, itemLabel }) {
       <ul>
         {items.map(item => (
           <li key={item._id}>
-            {itemLabel ? itemLabel(item) : (item.name || item.title || JSON.stringify(item))}
+            {itemLabel ? itemLabel(item) : defaultLabel(item)}
             <button onClick={() => handleEdit(item)} style={{ marginLeft: '0.5rem' }}>Edit</button>
             <button onClick={() => handleDelete(item._id)}>Delete</button>
           </li>
@@ -84,11 +107,27 @@ function Courses() {
 }
 
 function Semesters() {
-  return <CrudList title="Semesters" endpoint="/semesters" fields={[{ name: 'name', label: 'Name', required: true }, { name: 'number', label: 'Number', required: true, type: 'number' }, { name: 'course', label: 'Course ID', required: true }]} />;
+  return <CrudList
+    title="Semesters"
+    endpoint="/semesters"
+    fields={[
+      { name: 'name', label: 'Name', required: true },
+      { name: 'number', label: 'Number', required: true, type: 'number' },
+      { name: 'course', label: 'Course', required: true, type: 'ref', optionsEndpoint: '/courses' },
+    ]}
+  />;
 }
 
 function Subjects() {
-  return <CrudList title="Subjects" endpoint="/subjects" fields={[{ name: 'name', label: 'Name', required: true }, { name: 'code', label: 'Code' }, { name: 'semester', label: 'Semester ID', required: true }]} />;
+  return <CrudList
+    title="Subjects"
+    endpoint="/subjects"
+    fields={[
+      { name: 'name', label: 'Name', required: true },
+      { name: 'code', label: 'Code' },
+      { name: 'semester', label: 'Semester', required: true, type: 'ref', optionsEndpoint: '/semesters', optionLabel: s => `${s.name} (${s.course?.name || ''})` },
+    ]}
+  />;
 }
 
 function Resources() {
@@ -99,7 +138,7 @@ function Resources() {
       fields={[
         { name: 'type', label: 'Type', required: true, type: 'select', options: [{ value: 'notes', label: 'Notes' }, { value: 'video', label: 'Video' }] },
         { name: 'title', label: 'Title', required: true },
-        { name: 'subject', label: 'Subject ID', required: true },
+        { name: 'subject', label: 'Subject', required: true, type: 'ref', optionsEndpoint: '/subjects', optionLabel: s => `${s.name} (${s.semester?.course?.name || ''} ${s.semester?.name || ''})` },
         { name: 'unit', label: 'Unit' },
         { name: 'url', label: 'URL', required: true },
         { name: 'description', label: 'Description' },
@@ -116,7 +155,7 @@ function PYQs() {
       fields={[
         { name: 'title', label: 'Title', required: true },
         { name: 'year', label: 'Year', required: true },
-        { name: 'subject', label: 'Subject ID', required: true },
+        { name: 'subject', label: 'Subject', required: true, type: 'ref', optionsEndpoint: '/subjects', optionLabel: s => `${s.name} (${s.semester?.course?.name || ''} ${s.semester?.name || ''})` },
         { name: 'url', label: 'URL', required: true },
       ]}
     />
@@ -124,17 +163,22 @@ function PYQs() {
 }
 
 function Quizzes() {
+  const quizLabel = (item) => {
+    const unitText = item.unit ? ` — Unit ${item.unit.toString().replace(/^Unit\s*/i, '')}` : '';
+    return <>{item.title}{unitText} <code style={{ fontSize: '0.8rem', color: '#666' }}>({item._id})</code></>;
+  };
+
   return (
     <CrudList
       title="Quizzes"
       endpoint="/quizzes"
       fields={[
         { name: 'title', label: 'Title', required: true },
-        { name: 'subject', label: 'Subject ID', required: true },
+        { name: 'subject', label: 'Subject', required: true, type: 'ref', optionsEndpoint: '/subjects', optionLabel: s => `${s.name} (${s.semester?.course?.name || ''} ${s.semester?.name || ''})` },
         { name: 'unit', label: 'Unit' },
         { name: 'questions', label: 'Questions JSON', required: true, type: 'json', rows: 8 },
       ]}
-      itemLabel={(item) => `${item.title} ${item.unit ? '— Unit ' + item.unit : ''}`}
+      itemLabel={quizLabel}
     />
   );
 }
